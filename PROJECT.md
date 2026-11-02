@@ -19,7 +19,7 @@ Tune numbers in `ReplicatedStorage.EconomyConfig`. `GameConfig`, `RestaurantTier
 | `ServerScriptService.Leaderboard` | Ordered DataStores and the plaza board. |
 | `ServerScriptService.MarketIdle` | Sways shop clerks tagged `MarketNPC`, using each part's `Home` CFrame. |
 | `ServerStorage.TownsfolkTemplate` | R15 villager rig cloned by `Townsfolk`. |
-| `ServerStorage.DecorTemplates` | Master copies cloned for roads and gardens: `StreetLamp`, `StoneLantern`, `Bench`, `Fence`, `Pine`, `Banner`, `Sakura`. |
+| `ServerStorage.DecorTemplates` | Master copies: `StreetLamp`, `StoneLantern`, `Bench`, `Fence`, `Pine`, `Banner`, `Sakura`, `GableRoof`, `CurvedRoof`. |
 | `StarterGui.GameHud.HudClient` | HUD, shops, catch card, catch effects. |
 | `StarterPlayer.StarterPlayerScripts.SprintClient` | Sprint, stamina, dust. |
 | `ReplicatedStorage.GameConfig` | Fish pools, rarity colors, XP, upgrade formulas. |
@@ -148,7 +148,7 @@ Terrain is a flat island, grass inside about 520 studs and sand beach outside th
 | Harbor | Dock, boathouse, and four boats east of the main pier. |
 | Warehouses | Two warehouses and crates inland of the dock. |
 | Street | Clones of `DecorTemplates.StreetLamp`, about every 20 studs, alternating sides of the roads. Benches and banners use the same templates. Anchored. Small decor has CanCollide off. Lamp heads are tagged `NightLantern`. |
-| Gardens | Stone lanterns (shrine and houses), flower beds, bamboo, pines on the coast, and short fences behind the houses. Cherry trees in town are the one sakura template. |
+| Gardens | Stone lanterns (shrine and houses), flower beds, bamboo, and bonsai, all sitting on the terrain. Pines on the coast, and short fences behind the houses. Cherry trees in town are the one sakura template. |
 | Mood | Koi pond and bridge in the plaza, paper lanterns over the market (the light is tagged `NightLantern`, not the paper), noren on shop doors, cats, a mossy stone wall, and dock crates, barrels, a net, and a drying rack. Seagulls orbit the coast. |
 | Signs | Signposts for Market, Harbor, Shrine, and Lighthouse. |
 | Waypoints | 70 invisible parts: junctions, spoke stops, plot ends, shop doors, house doors, tea, ramen, the fish market, the dock, and the shrine. Door parts set `Approach` to a road node, plus `InsideX` / `InsideZ` for house doors. `Home`, `Dest`, `Weight`, `Kind`, and `Plot` mark how `Townsfolk` may use them. |
@@ -163,7 +163,7 @@ Terrain is a flat island, grass inside about 520 studs and sand beach outside th
 | Sell Counter | Sell All | Sells the whole inventory, same payout as the plot counter. |
 | Leaderboard | none | SurfaceGuis `CoinsGui` and `LevelGui`. |
 
-The five stalls sit in the gaps around the ring, facing the plaza, with the floor bottom at y=6. Each has a blocky `Clerk` tagged `MarketNPC` (Head, Torso, arms, legs). `Home` CFrames match those grounded parts, so `MarketIdle` sways the arms and head in place instead of pulling them back through the floor. `Workspace.Map.Interact.GeneratedChef` is a mesh prop and is not tagged, so it does not animate.
+Two-part roofs are rebuilt from those templates. `GableRoof` is the wedge peak on the houses, tea house, ramen shop, and shrine: the halves meet at a ridge and slope out to the eaves, with about 1.5 studs of overhang. `CurvedRoof` is the shallow slate roof on the five stalls and every restaurant tier, with the same peak plus a short upturned eave. Flat single-part roofs (Kenji, Yuki, Mio, Jun) keep their slab, and the ridge cap sits on that slab. The five stalls sit in the gaps around the ring, facing the plaza, with the floor bottom at y=6. Each has a blocky `Clerk` tagged `MarketNPC` (Head, Torso, arms, legs). `Home` CFrames match those grounded parts, so `MarketIdle` sways the arms and head in place instead of pulling them back through the floor. `Workspace.Map.Interact.GeneratedChef` is a mesh prop and is not tagged, so it does not animate.
 
 `DayNight` runs a 600-second full day from clock 16.2. Night is before 6.4 or after 17.7, and that is when `NightLantern` parts turn Neon and their lights switch on. Dusk (16:00–18:36 and 5:24–7:18) keeps a warm tint. Day is clear: atmosphere density 0.08, haze 0.1, fog end 9000, so the whole island reads from above. Dusk is density 0.14 and haze 0.28. Night is density 0.16 and haze 0.22, not the old heavy fog.
 
