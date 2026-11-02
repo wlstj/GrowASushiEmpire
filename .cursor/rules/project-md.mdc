@@ -1,0 +1,13 @@
+---
+description: Keep PROJECT.md current after every requested game change and commit it
+alwaysApply: true
+---
+
+# PROJECT.md
+
+After any requested change to Grow a Sushi Empire (Studio scripts, instances, config, or this repo), update `PROJECT.md` in the same turn so it matches the live game.
+
+- Edit only the sections the change affects: plots, levels/XP, restaurant tiers, economy, rods, shops, town/NPCs, UI, fish images, scripts, remotes, and saving.
+- Record the values the game actually uses. If `EconomyConfig` overwrites another module at runtime, document the `EconomyConfig` numbers.
+- Commit `PROJECT.md` (and this rule, if it changed) after the update. Do not commit secrets or unrelated files.
+- Skip the commit only when the user explicitly says not to commit.
