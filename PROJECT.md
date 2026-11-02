@@ -10,12 +10,16 @@ Tune numbers in `ReplicatedStorage.EconomyConfig`. `GameConfig`, `RestaurantTier
 |---|---|
 | `ServerScriptService.FishingServer` | Starts `PlayerData` and `PlotService`. Fishing, selling, bait, upgrades, restaurant upgrades, styles, rods, and conveyor auto-sell. |
 | `ServerScriptService.PlayerData` | Load, save, leaderstats, inventory, XP, tier, style, rod. |
-| `ServerScriptService.PlotService` | Assigns a free plot, clones the tier model, applies the style, sets the name sign. |
+| `ServerScriptService.PlotService` | Assigns a free plot, clones the tier model onto the terrain, applies the style, sets the name sign. |
 | `ServerScriptService.DayNight` | 10-minute day. Clear day, warm dusk, lighter night. `NightLantern` lights. |
-| `ServerScriptService.Townsfolk` | 12 server-owned villagers. Pathfinding between town stops and plot seats. |
+| `ServerScriptService.Townsfolk` | 12 server-owned villagers. Routines walk the road graph, then a short pathfinding hop to a door. |
+| `ServerScriptService.TownGraph` | Adjacency table for the road waypoints. `Townsfolk` runs A* on this, not on door nodes. |
+| `ServerScriptService.TownAmbience` | Slowly orbits the coastal seagull models. |
+| `ServerScriptService.RestaurantVisit` | BindableEvent. `Townsfolk` fires it with the plot owner when a villager eats at that restaurant. |
 | `ServerScriptService.Leaderboard` | Ordered DataStores and the plaza board. |
-| `ServerScriptService.MarketIdle` | Sways shop clerks tagged `MarketNPC`. |
+| `ServerScriptService.MarketIdle` | Sways shop clerks tagged `MarketNPC`, using each part's `Home` CFrame. |
 | `ServerStorage.TownsfolkTemplate` | R15 villager rig cloned by `Townsfolk`. |
+| `ServerStorage.DecorTemplates` | Master copies cloned for roads and gardens: `StreetLamp`, `StoneLantern`, `Bench`, `Fence`, `Pine`, `Banner`, `Sakura`. |
 | `StarterGui.GameHud.HudClient` | HUD, shops, catch card, catch effects. |
 | `StarterPlayer.StarterPlayerScripts.SprintClient` | Sprint, stamina, dust. |
 | `ReplicatedStorage.GameConfig` | Fish pools, rarity colors, XP, upgrade formulas. |
@@ -35,7 +39,7 @@ Remotes in `ReplicatedStorage.Remotes`:
 
 `Workspace.Plots` holds `Plot1` through `Plot6`, sorted by name. On join, `PlotService` waits for saved data, then claims the first plot whose `Occupied` attribute is false. It sets `Occupied` and `OwnerUserId`, and the sign reads `{DisplayName}'s Sushi`. On leave the restaurant is cleared, the sign returns to `Empty Plot`, and the attributes reset.
 
-Each plot has a `Pad`, fenced border, `PlotSpawn`, `Sign` (`OwnerLabel`), `PlotDock`, and `RestaurantHolder`. The restaurant is a clone of `ServerStorage.RestaurantModels.Tier1`–`Tier5`, named `Restaurant`, sat on the pad, then recolored by the player's style. `StyleRole` attributes (`Wood`, `Accent`, `Roof`, `Floor`, `Wall`, `Neon`) pick the palette. PointLights use the Neon color.
+Each plot has a `Pad`, fenced border, `PlotSpawn`, `Sign` (`OwnerLabel`), `PlotDock`, and `RestaurantHolder`. The restaurant is a clone of `ServerStorage.RestaurantModels.Tier1`–`Tier5`, named `Restaurant`. After it is placed on the plot, a raycast finds the terrain under the pad and the model is shifted so its bounding-box bottom sits on that surface (about y=6). It is then recolored by the player's style. `StyleRole` attributes (`Wood`, `Accent`, `Roof`, `Floor`, `Wall`, `Neon`) pick the palette. PointLights use the Neon color.
 
 Conveyors are child folders named `Conveyor1` and up. Each has `Waypoints` and `Plates`. Sushi plates only spawn on the owner's conveyors. The owner's sell prompt is the only one that sells at that restaurant. The plaza sell counter sells the same inventory.
 
@@ -120,10 +124,10 @@ Cast time and cooldown also scale with Faster Cast and the rod's cast speed. Flo
 
 Shared world:
 
-- `Workspace.Plaza` — cobblestone floor (under the terrain), sushi fountain, five market stalls. `Path1`–`Path6` and `PierPath` are hidden; the visible roads are in `Workspace.Town.Roads`
+- `Workspace.Plaza` — cobblestone floor (under the terrain), sushi fountain, five market stalls. The old `Path1`–`Path6` and `PierPath` are gone. Visible roads are `Workspace.Town.Roads`
 - `Workspace.Map.MainPier` and `Workspace.Map.FishingSpots` — pier spots `Pier1`–`Pier6` and plot spots `Plot1Spot`–`Plot6Spot`, each with a `Fish` prompt
-- `Workspace.Map.Interact` — invisible prompt hosts: `BaitShop`, `UpgradeShop`, `RodShop`, `PlazaSell`. `OldFishingSpot` and the old `SellCounter` prompts are disabled
-- `Workspace.Decor` — torii, sakura, boats, benches, rocks, bushes, lantern posts tagged `NightLantern`
+- `Workspace.Map.Interact` — invisible prompt hosts: `BaitShop`, `UpgradeShop`, `RodShop`, `PlazaSell`, standing a few studs in front of the shop doors. `OldFishingSpot` and the old `SellCounter` prompts are disabled
+- `Workspace.Decor` — torii, one sakura model cloned along the town, boats, rocks, and bushes. Road lamps and benches live under `Workspace.Town`
 - `Workspace.Town` — fishing town built on the terrain (surface about y=6). `StreamingEnabled` is on
 - `Workspace.Boundaries` — invisible walls and a safety floor
 - `Workspace.SpawnLocation` — plaza spawn
@@ -134,8 +138,8 @@ Terrain is a flat island, grass inside about 520 studs and sand beach outside th
 
 | Folder | What is there |
 |---|---|
-| Roads | Cobblestone roads (grey-beige) with slate curbs from the plaza to each plot, the pier, the town street, and each shop. Stepping-stone side paths. Parts sit on the terrain, CanCollide off. |
-| Bridges | Stone ramp from the high ground onto the main pier, about z=524 to z=556. |
+| Roads | Cobblestone ring (radius 128, width 14) around the plaza, plus one straight spoke to each plot, the main dock, the town street (130°), and the shrine (190°). Round junction discs are the only joint. A short entrance path runs from the ring to each shop door. `Spoke_DockLink` continues the dock spoke to the pier bridge. Tops sit about y=6.06, CanCollide off, so nothing overlaps or z-fights. |
+| Bridges | Wood ramp from the dock road onto the main pier, about z=524 to z=556. |
 | Houses | 10 houses (Hana, Kenji, Aoi, Sora, Yuki, Haru, Ren, Mio, Emi, Jun), 25–35 studs tall, doors about 8 studs, varied tiled roofs. Along the street at 130° between plots 2 and 3. |
 | Market | 6 fish stalls on that street. |
 | TeaHouse / RamenShop | Tea house and ramen shop at the plaza end of the street. |
@@ -143,10 +147,12 @@ Terrain is a flat island, grass inside about 520 studs and sand beach outside th
 | Lighthouse | Striped coastal tower near (510, 166). Beacon is a `NightLantern`. |
 | Harbor | Dock, boathouse, and four boats east of the main pier. |
 | Warehouses | Two warehouses and crates inland of the dock. |
-| Street | Stone lanterns, street lamps, banners, mailboxes, vending machines, benches, all anchored. Small decor has CanCollide off. Lamp and lantern heads are tagged `NightLantern`. |
-| Gardens | Flower beds, bamboo, and short wooden fences behind the houses. |
+| Street | Clones of `DecorTemplates.StreetLamp`, about every 20 studs, alternating sides of the roads. Benches and banners use the same templates. Anchored. Small decor has CanCollide off. Lamp heads are tagged `NightLantern`. |
+| Gardens | Stone lanterns (shrine and houses), flower beds, bamboo, pines on the coast, and short fences behind the houses. Cherry trees in town are the one sakura template. |
+| Mood | Koi pond and bridge in the plaza, paper lanterns over the market (the light is tagged `NightLantern`, not the paper), noren on shop doors, cats, a mossy stone wall, and dock crates, barrels, a net, and a drying rack. Seagulls orbit the coast. |
 | Signs | Signposts for Market, Harbor, Shrine, and Lighthouse. |
-| Routes | Invisible idle stops plus six `Seat`s (`Kind` = `Eat`) just outside each plot, toward the plaza. |
+| Waypoints | 70 invisible parts: junctions, spoke stops, plot ends, shop doors, house doors, tea, ramen, the fish market, the dock, and the shrine. Door parts set `Approach` to a road node, plus `InsideX` / `InsideZ` for house doors. `Home`, `Dest`, `Weight`, `Kind`, and `Plot` mark how `Townsfolk` may use them. |
+| Routes | Empty. Old eat-seats were removed so villagers cannot target an empty plot. |
 | Townsfolk | Runtime clones. Not saved in edit mode. |
 
 | Shop | Prompt | What it does |
@@ -157,11 +163,15 @@ Terrain is a flat island, grass inside about 520 studs and sand beach outside th
 | Sell Counter | Sell All | Sells the whole inventory, same payout as the plot counter. |
 | Leaderboard | none | SurfaceGuis `CoinsGui` and `LevelGui`. |
 
-Each stall has a blocky `Clerk` model tagged `MarketNPC` (Head, Torso, arms, legs, each with a `Home` CFrame). `MarketIdle` sways the arms and head. `Workspace.Map.Interact.GeneratedChef` is a mesh prop and is not tagged, so it does not animate.
+The five stalls sit in the gaps around the ring, facing the plaza, with the floor bottom at y=6. Each has a blocky `Clerk` tagged `MarketNPC` (Head, Torso, arms, legs). `Home` CFrames match those grounded parts, so `MarketIdle` sways the arms and head in place instead of pulling them back through the floor. `Workspace.Map.Interact.GeneratedChef` is a mesh prop and is not tagged, so it does not animate.
 
 `DayNight` runs a 600-second full day from clock 16.2. Night is before 6.4 or after 17.7, and that is when `NightLantern` parts turn Neon and their lights switch on. Dusk (16:00–18:36 and 5:24–7:18) keeps a warm tint. Day is clear: atmosphere density 0.08, haze 0.1, fog end 9000, so the whole island reads from above. Dusk is density 0.14 and haze 0.28. Night is density 0.16 and haze 0.22, not the old heavy fog.
 
-`Townsfolk` clones `ServerStorage.TownsfolkTemplate` into 12 villagers (Aiko, Daichi, Chiyo, Goro, Botan, Isamu, Kaede, Makoto, Naomi, Riku, Saki, Taro). The server owns them. They pathfind at walk speed 10 between route stops, about one path at a time, and sometimes sit at a plot seat. Sitting does not pay the restaurant. Idle animation `507766666`, walk animation `507777826`.
+`Townsfolk` clones `ServerStorage.TownsfolkTemplate` into 12 villagers (Aiko, Daichi, Chiyo, Goro, Botan, Isamu, Kaede, Makoto, Naomi, Riku, Saki, Taro). The server owns them. Each has a house-door home. The loop leaves home, walks to 1–3 destinations, goes home, and waits inside. Destinations are the shops, fish market, tea house, ramen shop, shrine, dock, and a player restaurant. A restaurant is eligible only when that plot is occupied and a `Restaurant` model exists. Weight is `2 + tier * 3`. Other stops use the waypoint `Weight` (shops and the fish market 5, tea and ramen 4, shrine and dock 3). One villager per destination; a full stop is skipped. Walk speed is 12–16, start delays are staggered, and a small lateral offset keeps people off the same line. Saki and Taro share a house with Aiko and Daichi and stand a few studs aside (`HomeSlot`).
+
+Movement is A* over `TownGraph`, then `Humanoid:MoveTo` between road waypoints. `PathfindingService` is only the last hop from the road to a door. At a restaurant the villager stands at the sell counter, plays animation `507770239` with a bowl, and `RestaurantVisit` fires with the owner. The visit does not pay coins yet. Idle is `507766666`, walk is `507777826`. If `MoveTo` does not finish within 8 seconds, the villager is teleported to the nearest road waypoint.
+
+Night is the same clock as `DayNight` (before 6.4 or after 17.7). Goro, Botan, and Saki keep walking and carry a lantern. The others stay home.
 
 ## UI
 
