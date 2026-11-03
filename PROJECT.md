@@ -23,14 +23,14 @@ Tune numbers in `ReplicatedStorage.EconomyConfig`. `GameConfig`, `RestaurantTier
 | `ServerStorage.TownsfolkTemplate` | R15 villager rig cloned by `Townsfolk`. |
 | `ServerStorage.DecorTemplates` | Master copies: `StreetLamp`, `StoneLantern`, `Bench`, `Fence`, `Pine`, `Banner`, `Sakura`, `GableRoof`, `CurvedRoof`. |
 | `StarterGui.GameHud.HudClient` | HUD, shops, catch card, catch effects, conveyor sale line, restaurant stats, weather banner, welcome-back popup. |
-| `StarterPlayer.StarterPlayerScripts.SprintClient` | Sprint, stamina, dust. |
-| `StarterPlayer.StarterPlayerScripts.FishingRodClient` | Rod hold, cast, bob, and reel. Shows fishing prompts only while the rod is equipped. Opens a zone gate once the player's level is high enough. |
+| `StarterPlayer.StarterPlayerScripts.SprintClient` | Sprint, stamina, dust, and the harbor speed path. |
+| `StarterPlayer.StarterPlayerScripts.FishingRodClient` | Rod hold, cast, bob, and reel. Faces the water for the cast. Shows fishing prompts only while the rod is equipped. Opens a zone gate once the player's level is high enough. |
 | `ReplicatedStorage.GameConfig` | Fish pools, rarity colors, XP, upgrade formulas. |
 | `ReplicatedStorage.EconomyConfig` | Live prices, odds, costs, auto-sell speed, restaurant guest rates, offline pay, and weather. |
 | `ReplicatedStorage.RestaurantTiers` | Five tiers and three cosmetic styles. |
 | `ReplicatedStorage.RodConfig` | One rod, levels 1–50, evolution looks, and the coin/XP curves. |
 | `ReplicatedStorage.FishConfig` | Per-fish decal ids. |
-| `ReplicatedStorage.FishingZones` | Four fishing zones: level, fish, rarity odds, XP multiplier. |
+| `ReplicatedStorage.FishingZones` | Four fishing zones: level, fish, rarity odds, spillover from higher zones, XP multiplier. |
 
 Remotes in `ReplicatedStorage.Remotes`:
 
@@ -140,6 +140,8 @@ Rod leveling uses `EconomyConfig.RodProgress`: `baseCost` 40, `growth` 1.3, `max
 
 `ReplicatedStorage.Assets.FishingAnims` holds KeyframeSequences `Hold`, `Cast`, `Bob`, and `Reel` (Action priority). Hold matches that forward grip. Cast pulls the tip up and back, then extends it forward toward the water, then returns to Hold. Bob is a small lift. Reel draws the tip in and returns to Hold. `FishingRodClient` registers each clip when `KeyframeSequenceProvider` allows it and plays it on the owning client. If registration is unavailable, the same poses are written onto the arm Motor6D or AnimationConstraint. Equip loops Hold. Pressing E plays Cast, then Bob. The server then sends Bite and Reel. Reel plays once; the catch result does not start a second reel.
 
+The cast payload includes the spot position and the bobber's water point. `FishingRodClient` turns the `HumanoidRootPart` to face that direction with Y flattened (from the spot toward the water), sets `AutoRotate` off for the cast, the bite, and the reel, and restores the previous `AutoRotate` when the reel ends. The bobber still lands on the outward water ray, so it sits in front of the player.
+
 A cast requires the rod equipped, a fishing spot within 18 studs, the zone's level, and the cooldown. The server raycasts outward from the spot, skipping the dock, and accepts only terrain water. A beam runs from the rod tip to a red bobber that arcs onto that water, bobs, shows a `!` billboard on the bite, then tweens back to the player. Invisible `Workspace.Baseplate` has `CanQuery` false so those rays reach the water instead of the baseplate top.
 
 There is one rod, level 1–50. Stats blend linearly with `alpha = (level - 1) / 49`:
@@ -195,7 +197,7 @@ Terrain is a flat island, grass inside about 520 studs and sand beach outside th
 
 | Folder | What is there |
 |---|---|
-| Roads | Cobblestone ring (radius 128, width 14) around the plaza, plus one straight spoke to each plot, the main dock, the town street (130°), and the shrine (190°). Round junction discs are the only joint. A short entrance path runs from the ring to each shop door. `Spoke_DockLink` continues the dock spoke to the pier bridge. Tops sit about y=6.06, CanCollide off, so nothing overlaps or z-fights. |
+| Roads | Cobblestone ring (radius 128, width 14) around the plaza, plus one straight spoke to each plot, the main dock, the town street (130°), and the shrine (190°). Round junction discs are the only joint. A short entrance path runs from the ring to each shop door. `Spoke_Dock` (about z=135 to z=505) and `Spoke_DockLink` (about z=505 to z=525) are the stone road from the plaza to the harbor. Both surface parts are tagged `SpeedPath`. Glowing chevrons sit on them, one lane pointing toward the harbor and one toward the plaza. Tops sit about y=6.06, CanCollide off, so nothing overlaps or z-fights. |
 | Bridges | Wood ramp from the dock road onto the main pier, about z=524 to z=556. |
 | Houses | 10 houses (Hana, Kenji, Aoi, Sora, Yuki, Haru, Ren, Mio, Emi, Jun), 25–35 studs tall, doors about 8 studs, varied tiled roofs. Along the street at 130° between plots 2 and 3. |
 | Market | 6 fish stalls on that street. |
@@ -268,6 +270,8 @@ A Legendary or Mythic catch fires `CatchFX` to every client before the character
 
 `SprintClient` builds `SprintGui`: walk 16, sprint 26 while Left Shift is held (or the touch Sprint button), stamina 100 draining at 22/s and regenerating at 18/s, FOV +10, foot dust.
 
+Every 0.1 seconds it raycasts 7 studs under the feet, skipping the character and any part that is not tagged `SpeedPath`. Standing on the harbor road multiplies walk speed by 1.5, including sprint, and caps the result at 40 (walk 24, sprint 39). Stepping off or leaving the ground restores the normal speed. While the boost is on, pale speed lines emit backward from the player and the HUD shows `»  Speed Boost`.
+
 Sounds in `ReplicatedStorage.Assets`: `CoinCollect`, `WaterSplash`, `LevelUp`, `CritCatch`.
 
 ## Fish images
@@ -292,13 +296,24 @@ Still placeholders: Anchovy, Smelt, Shrimp, Tuna, Sea Bream, Scallop, Sea Urchin
 
 ## Fishing zones
 
-`ReplicatedStorage.FishingZones` picks the fish. All twenty-one spots live in `Workspace.Map.FishingSpots`. Terrain water starts near radius 628 (and z=628 on the main pier) at y=-1. Each dock starts on the sand just before that line and runs about 40 studs out over the water, with posts down to about y=-7. A sign shows the name and level. A `LockGate` blocks the dock until `FishingRodClient` sees `leaderstats.Level` at or above the requirement. The server still rejects the catch with `{name} unlocks at level {n}.` Catch XP is multiplied by the zone's `XpMultiplier`. Odds are filtered to rarities that zone actually has, then luck nudges the higher ones.
+`ReplicatedStorage.FishingZones` picks the fish. All twenty-one spots live in `Workspace.Map.FishingSpots`. Terrain water starts near radius 628 (and z=628 on the main pier) at y=-1. Each dock starts on the sand just before that line and runs about 40 studs out over the water, with posts down to about y=-7. A sign shows the name and level. A `LockGate` blocks the dock until `FishingRodClient` sees `leaderstats.Level` at or above the requirement. The server still rejects the catch with `{name} unlocks at level {n}.` Catch XP is multiplied by the zone's `XpMultiplier`.
+
+Each lower zone keeps its own pool, then `spillover` lists a small chance to catch a fish from a higher zone instead. Those chances live on the zone. A spillover pick is uniform across that higher zone's fish. Luck uses the same nudge as the main pool (`1 + luck * 0.15` on spillover fish, main pool divided by `1 + luck * 0.12`). Rain, Storm, Golden Hour, and Blood Moon still apply through `EconomyConfig`, per rarity, before the weights are normalized. After that, each spillover zone's total chance is capped at `SpilloverCap` (2) times its base. The leftover weight goes back to the home pool. A 10,000-roll sample at luck 0 and clear weather landed on:
+
+| Zone | Home | Coral | Deep | Mystic |
+|---|---|---|---|---|
+| Village Dock | 96.60% (base 96.45%) | 2.83% (3%) | 0.54% (0.5%) | 0.03% (0.05%) |
+| Coral Reef | 96.28% (base 96.7%) | — | 3.47% (3%) | 0.25% (0.3%) |
+| Deep Sea Pier | 97.93% (base 98%) | — | — | 2.07% (2%) |
+| Mystic Lagoon | 100% | — | — | — |
+
+Village Dock mystic spillover at luck 5 during a Blood Moon was 0.078% across 40,000 rolls. The cap for that bucket is 0.10%.
 
 | Zone | Level | XP | Where | Odds | Fish |
 |---|---|---|---|---|---|
-| Village Dock | 1 | 1.0x | Main pier `WaterDock`, z=626 to z=668. Twelve spots at the end. Sign near (10, 6.4, 530). | Common 100% | Anchovy, Sardine, Smelt, Mackerel, Shrimp |
-| Coral Reef | 8 | 1.6x | Dock along the reef heading, radius about 621–663. Three spots at the end. Pink coral on the rails. | Uncommon 68%, Rare 32% | Salmon, Sea Bream, Scallop, Octopus, Yellowtail |
-| Deep Sea Pier | 18 | 2.4x | Same length on the opposite heading. Dark slate deck and a blue light on the outer post. | Uncommon 18%, Rare 42%, Epic 40% | Tuna, Bluefin Tuna, Eel, Sea Urchin, King Crab |
+| Village Dock | 1 | 1.0x | Main pier `WaterDock`, z=626 to z=668. Twelve spots at the end. Sign near (10, 6.4, 530). | Home Common 100%. Spillover: Coral 3%, Deep 0.5%, Mystic 0.05% | Anchovy, Sardine, Smelt, Mackerel, Shrimp |
+| Coral Reef | 8 | 1.6x | Dock along the reef heading, radius about 621–663. Three spots at the end. Pink coral on the rails. | Home Uncommon 68%, Rare 32%. Spillover: Deep 3%, Mystic 0.3% | Salmon, Sea Bream, Scallop, Octopus, Yellowtail |
+| Deep Sea Pier | 18 | 2.4x | Same length on the opposite heading. Dark slate deck and a blue light on the outer post. | Home Uncommon 18%, Rare 42%, Epic 40%. Spillover: Mystic 2% | Tuna, Bluefin Tuna, Eel, Sea Urchin, King Crab |
 | Mystic Lagoon | 30 | 3.6x | Same length toward the lagoon. Pale deck, mist at the end. | Legendary 70%, Mythic 30% | Golden Koi, Dragon Fish, Leviathan Tuna, Celestial Koi |
 
 ## Saving
