@@ -8,23 +8,25 @@ Tune numbers in `ReplicatedStorage.EconomyConfig`. `GameConfig`, `RestaurantTier
 
 | Path | Role |
 |---|---|
-| `ServerScriptService.FishingServer` | Starts `PlayerData` and `PlotService`. Fishing, selling, bait, upgrades, restaurant upgrades, styles, rods, and conveyor auto-sell. |
-| `ServerScriptService.PlayerData` | Load, save, leaderstats, inventory, XP, tier, style, rod. |
+| `ServerScriptService.FishingServer` | Starts `PlayerData` and `PlotService`. Fishing, selling, bait, upgrades, restaurant upgrades, styles, rods, and conveyor auto-sell. Legendary and Mythic catches are announced to every client. |
+| `ServerScriptService.PlayerData` | Load, save, leaderstats, inventory, XP, tier, style, rod, last-seen time, customers today. |
 | `ServerScriptService.PlotService` | Assigns a free plot, clones the tier model onto the terrain, applies the style, sets the name sign. |
-| `ServerScriptService.DayNight` | 10-minute day. Clear day, warm dusk, lighter night. `NightLantern` lights. |
+| `ServerScriptService.DayNight` | 10-minute day. Clear day, warm dusk, lighter night. `NightLantern` lights. Starts `WeatherService` and reapplies its sky overlay after each clock band. |
 | `ServerScriptService.Townsfolk` | 12 server-owned villagers. Routines walk the road graph, then a short pathfinding hop to a door. |
+| `ServerScriptService.RestaurantIncome` | NPC visits buy sushi from that player's inventory, show floating coins, and pay offline earnings on join. |
+| `ServerScriptService.WeatherService` | Server-wide weather. Rain, Storm, Golden Hour, and Blood Moon. Studio command `/event`. |
 | `ServerScriptService.TownGraph` | Adjacency table for the road waypoints. `Townsfolk` runs A* on this, not on door nodes. |
 | `ServerScriptService.TownAmbience` | Slowly orbits the coastal seagull models. |
-| `ServerScriptService.RestaurantVisit` | BindableEvent. `Townsfolk` fires it with the plot owner when a villager eats at that restaurant. |
+| `ServerScriptService.RestaurantVisit` | BindableEvent. `Townsfolk` fires it with the plot owner and the villager. `RestaurantIncome` sells sushi on that fire. |
 | `ServerScriptService.Leaderboard` | Ordered DataStores and the plaza board. |
 | `ServerScriptService.MarketIdle` | Sways shop clerks tagged `MarketNPC`, using each part's `Home` CFrame. |
 | `ServerStorage.TownsfolkTemplate` | R15 villager rig cloned by `Townsfolk`. |
 | `ServerStorage.DecorTemplates` | Master copies: `StreetLamp`, `StoneLantern`, `Bench`, `Fence`, `Pine`, `Banner`, `Sakura`, `GableRoof`, `CurvedRoof`. |
-| `StarterGui.GameHud.HudClient` | HUD, shops, catch card, catch effects, conveyor sale line. |
+| `StarterGui.GameHud.HudClient` | HUD, shops, catch card, catch effects, conveyor sale line, restaurant stats, weather banner, welcome-back popup. |
 | `StarterPlayer.StarterPlayerScripts.SprintClient` | Sprint, stamina, dust. |
 | `StarterPlayer.StarterPlayerScripts.FishingRodClient` | Rod hold, cast, bob, and reel. Shows fishing prompts only while the rod is equipped. Opens a zone gate once the player's level is high enough. |
 | `ReplicatedStorage.GameConfig` | Fish pools, rarity colors, XP, upgrade formulas. |
-| `ReplicatedStorage.EconomyConfig` | Live prices, odds, costs, auto-sell speed. |
+| `ReplicatedStorage.EconomyConfig` | Live prices, odds, costs, auto-sell speed, restaurant guest rates, offline pay, and weather. |
 | `ReplicatedStorage.RestaurantTiers` | Five tiers and three cosmetic styles. |
 | `ReplicatedStorage.RodConfig` | One rod, levels 1–50, evolution looks, and the coin/XP curves. |
 | `ReplicatedStorage.FishConfig` | Per-fish decal ids. |
@@ -59,19 +61,47 @@ Sell XP is `max(1, floor(coins earned * 0.25))`, including tier and rod sell bon
 
 ## Restaurant tiers
 
-Names, sizes, and conveyor counts live on `RestaurantTiers.Tiers`. Costs, required level, sell multiplier, and auto-sell interval are replaced from `EconomyConfig.Restaurant`.
+Names, sizes, and conveyor counts live on `RestaurantTiers.Tiers`. Costs, required level, sell multiplier, auto-sell interval, max customers, visit weight, and tip chance are replaced from `EconomyConfig.Restaurant`.
 
-| Tier | Name | Level | Coins | Sell | Auto-sell | Conveyors | Model |
-|---|---|---|---|---|---|---|---|
-| 1 | Sushi Stall | 1 | 0 | 1.00x | 22s | 1 | Tier1 |
-| 2 | Sushi Bar | 8 | 5,000 | 1.35x | 16s | 2 | Tier2 |
-| 3 | Conveyor Restaurant | 16 | 50,000 | 1.80x | 11s | 3 | Tier3 |
-| 4 | Omakase Lounge | 28 | 400,000 | 2.40x | 8s | 3 | Tier4 |
-| 5 | Sushi Empire Tower | 40 | 3,000,000 | 3.20x | 5s | 4 | Tier5 |
+| Tier | Name | Level | Coins | Sell | Auto-sell | Guests | Visit weight | Tip | Conveyors | Model |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | Sushi Stall | 1 | 0 | 1.00x | 28s | 1 | 4 | 5% | 1 | Tier1 |
+| 2 | Sushi Bar | 8 | 5,000 | 1.35x | 22s | 2 | 10 | 10% | 2 | Tier2 |
+| 3 | Conveyor Restaurant | 16 | 50,000 | 1.80x | 18s | 3 | 26 | 16% | 3 | Tier3 |
+| 4 | Omakase Lounge | 28 | 400,000 | 2.40x | 14s | 4 | 40 | 22% | 3 | Tier4 |
+| 5 | Sushi Empire Tower | 40 | 3,000,000 | 3.20x | 10s | 6 | 60 | 30% | 4 | Tier5 |
 
 The Restaurant button calls `UpgradeRestaurant`. The server checks level and coins, charges the player, clears plates, and respawns the model. Styles are cosmetic: Traditional (level 1), Modern (8), Neon (18). `SetStyle` checks the level, saves `Style`, and recolors the current model.
 
-Auto-sell runs in `FishingServer`. `EconomyConfig.AutoSell` sets `fishPerTick` to 1 and `autoSellInterval` to 22, 16, 11, 8, 5 seconds, the same numbers copied onto `Restaurant.passiveInterval`. That is about 55% slower than the old 14 / 10 / 7 / 5 / 3.2 drain. Each tick removes that many oldest inventory fish and one plate each, pays `fish value * tier sell * (1 + rod sell bonus)`, and grants sell XP. Plates take 1.8 seconds between conveyor waypoints. The HUD line under the XP bar reads `Conveyor sells 1 every Ns`, and for 2.5 seconds after a sale it reads `Sold NAME +coins`.
+Auto-sell runs in `FishingServer`. `EconomyConfig.AutoSell` sets `fishPerTick` to 1 and `autoSellInterval` to 28, 22, 18, 14, 10 seconds, the same numbers copied onto `Restaurant.passiveInterval`. Each tick removes that many oldest inventory fish and one plate each, pays `fish value * tier sell * (1 + rod sell bonus)`, and grants sell XP. Plates take 1.8 seconds between conveyor waypoints. The HUD line under the XP bar reads `Conveyor sells 1 every Ns`, and for 2.5 seconds after a sale it reads `Sold NAME +coins`. A second line reads `Customers today N · coins/min`.
+
+## Restaurant income
+
+`RestaurantIncome` listens to `RestaurantVisit`. The handler runs before the villager decides whether to stay, so it can set the villager's `VisitMood`.
+
+A stocked visit removes the best-value fish first (`PlayerData.RemoveBestFish`). How many:
+
+| Tier | Fish taken |
+|---|---|
+| 1–2 | Random from 1 up to the stock, capped at 3 |
+| 3–4 | Random from 2 up to the stock, capped at 3 (1 if only one fish is left) |
+| 5 | All 3, or whatever is left |
+
+Each fish pays `floor(value * tier sellMultiplier * (1 + rod sellBonus) + 0.5)`. The rod bonus is the same 0%–30% used by the conveyor and the sell counter, added as `1 + sellBonus`. Multiplying by the raw bonus would pay nothing at rod level 1. A tip roll (`tipChance`) adds 50% of that sale (`EconomyConfig.RestaurantIncome.tipBonus` is 0.5), at least 1 coin. The player gets the coins, sell XP, and that many conveyor plates are removed. A billboard above the restaurant reads `+coins` or `+coins tip` and rises 4.5 studs. The owner toast reads `Guest bought N sushi for coins`.
+
+An empty inventory pays nothing. The villager's mood is `unhappy`, a `>:(` billboard sits on the head for 1.8 seconds, and the toast reads `A guest left unhappy. Stock the restaurant.` Unhappy visits still count toward customers today. `Townsfolk` then waits 1.6 seconds and leaves without the bowl. A happy visit plays eat animation `507770239` for 6–9 seconds.
+
+Customers today resets when the UTC day-of-year changes. Earnings per minute is the sum of NPC sale coins from the last 60 seconds. Offline pay is not added to that window. Both numbers are on the HUD line and in the restaurant panel (sell, conveyor seconds, guests, tip percent, customers today, earnings per minute).
+
+Offline pay runs once on join. `LastSeen` is `os.time()` on each save. On load, time away is `min(now - LastSeen, 7200)` when `LastSeen` is already set, then `LastSeen` becomes now. A first join (`LastSeen` 0) and any absence under 60 seconds pay nothing and show no popup. An empty inventory shows `Welcome back! You were away N min. The restaurant was empty, so no coins came in.` A stocked inventory pays from the tier's expected rate, not from the player's actual fish:
+
+`floor(visitsPerMinute * fishPerVisit * baseFishValue * sellMultiplier * (1 + rod sellBonus) * (1 + tipChance * 0.5) * minutesAway * 0.25)`
+
+`EconomyConfig.RestaurantIncome` holds those rates: visits per minute 1.3, 3.0, 5.9, 7.6, 9.2; fish per visit 1.5, 1.5, 2.5, 2.5, 3; base fish value 4, 9, 14, 28, 50. The rate is 25% and the cap is 2 hours. Inventory is not consumed. Coins above 0 also grant sell XP. The stocked popup reads `Welcome back! Your restaurant earned N coins over M min away.` and plays `CoinCollect`. It stays up for 6.5 seconds.
+
+Other town stops total about weight 44. With 12 villagers, the restaurant weights above make villager sales the larger coin sink by tier 3, while the conveyor (one fish every 18 seconds at that tier) and fishing still have to restock the counter.
+
+In Studio, `/away` or `/away <seconds>` (default 7200) rewinds `LastSeen` and saves. Rejoining shows the popup. Published servers allow that command for the place creator and user id 572644519.
 
 ## Economy config
 
@@ -194,26 +224,47 @@ Two-part roofs are rebuilt from those templates. `GableRoof` is the wedge peak o
 
 `DayNight` runs a 600-second full day from clock 16.2. Night is before 6.4 or after 17.7, and that is when `NightLantern` parts turn Neon and their lights switch on. Dusk (16:00–18:36 and 5:24–7:18) keeps a warm tint. Day is clear: atmosphere density 0.08, haze 0.1, fog end 9000, so the whole island reads from above. Dusk is density 0.14 and haze 0.28. Night is density 0.16 and haze 0.22, not the old heavy fog.
 
-`Townsfolk` clones `ServerStorage.TownsfolkTemplate` into 12 villagers (Aiko, Daichi, Chiyo, Goro, Botan, Isamu, Kaede, Makoto, Naomi, Riku, Saki, Taro). The server owns them. Each has a house-door home. The loop leaves home, walks to 1–3 destinations, goes home, and waits inside. Destinations are the shops, fish market, tea house, ramen shop, shrine, dock, and a player restaurant. A restaurant is eligible only when that plot is occupied and a `Restaurant` model exists. Weight is `2 + tier * 3`. Other stops use the waypoint `Weight` (shops and the fish market 5, tea and ramen 4, shrine and dock 3). One villager per destination; a full stop is skipped. Walk speed is 12–16, start delays are staggered, and a small lateral offset keeps people off the same line. Saki and Taro share a house with Aiko and Daichi and stand a few studs aside (`HomeSlot`).
+`Townsfolk` clones `ServerStorage.TownsfolkTemplate` into 12 villagers (Aiko, Daichi, Chiyo, Goro, Botan, Isamu, Kaede, Makoto, Naomi, Riku, Saki, Taro). The server owns them. Each has a house-door home. The loop leaves home, walks to 1–3 destinations, goes home, and waits inside. Destinations are the shops, fish market, tea house, ramen shop, shrine, dock, and a player restaurant. A restaurant is eligible only when that plot is occupied and a `Restaurant` model exists. Its weight is the tier `visitWeight` (4, 10, 26, 40, 60) and it allows that tier's `maxCustomers` at once. Other stops use the waypoint `Weight` (shops and the fish market 5, tea and ramen 4, shrine and dock 3) and allow one villager. A full stop is skipped. Walk speed is 12–16, start delays are staggered, and a small lateral offset keeps people off the same line. Saki and Taro share a house with Aiko and Daichi and stand a few studs aside (`HomeSlot`).
 
-Movement is A* over `TownGraph`, then `Humanoid:MoveTo` between road waypoints. `PathfindingService` is only the last hop from the road to a door. At a restaurant the villager stands at the sell counter, plays animation `507770239` with a bowl, and `RestaurantVisit` fires with the owner. The visit does not pay coins yet. Idle is `507766666`, walk is `507777826`. If `MoveTo` does not finish within 8 seconds, the villager is teleported to the nearest road waypoint.
+Movement is A* over `TownGraph`, then `Humanoid:MoveTo` between road waypoints. `PathfindingService` is only the last hop from the road to a door. At a restaurant the villager stands at the sell counter and `RestaurantVisit` fires with the owner and the villager. Pay, the unhappy emote, and the eat animation are in Restaurant income above. Idle is `507766666`, walk is `507777826`. If `MoveTo` does not finish within 8 seconds, the villager is teleported to the nearest road waypoint.
 
 Night is the same clock as `DayNight` (before 6.4 or after 17.7). Goro, Botan, and Saki keep walking and carry a lantern. The others stay home.
+
+## Weather
+
+`WeatherService` starts from `DayNight`. After a clear gap of 8–12 minutes it picks one event and runs it for 3 minutes (`EconomyConfig.Weather`: `minGap` 480, `maxGap` 720, `duration` 180). The next gap starts only after that event ends. Blood Moon is in the random pool only while the clock is night (before 6.4 or after 17.7). A scheduled Blood Moon ends when day starts. An admin-forced Blood Moon runs the full 3 minutes in daylight too.
+
+| Event | Odds | Look |
+|---|---|---|
+| Rain | Rare, Epic, Legendary, and Mythic weights ×1.25, then renormalized | Cool gray tint, fog end 2800, rain particles |
+| Storm | Every mutation chance ×1.8, then Frozen ×2.5 more (Frozen ×4.5) | Darker tint, fog end 1500, rain, lightning every 4–7s |
+| Golden Hour | Golden chance ×3 | Warm tint, fog end 4200 |
+| Blood Moon | Legendary and Mythic weights ×2, then renormalized | Red tint, fog end 2200, star count 4000 |
+
+`ReplicatedStorage.WeatherId` is the current id, or empty when clear. `EconomyConfig.ApplyWeatherOdds` and `WeatherMutationChance` are what `FishingServer` uses, on zone odds and on the luck table. A zone that contains only Legendary and Mythic (Mystic Lagoon) stays at its own split under Blood Moon, because both weights scale and the table is renormalized.
+
+The overlay is a `ColorCorrection`, fog, ambient, and outdoor ambient written after `DayNight` paints the clock band, so the next band does not wipe it. Particles come from an invisible volume high over the island. Storm also spikes `Lighting.Brightness` and fires `ClientFX` `"Lightning"`: a white screen flash and thunder `rbxassetid://138186576`.
+
+The top banner reads `{name}   m:ss    {blurb}` and counts down from the server end time. Looping sounds: Rain `9064263922`, Storm `9112854440`, Golden Hour and Blood Moon `1837849285` (Blood Moon playback 0.72). Clear hides the banner and stops the sound.
+
+In Studio every player can chat `/event Rain`, `/event Storm`, `/event GoldenHour`, `/event BloodMoon`, or `/event Clear`. Aliases: `rain`, `storm`, `golden`, `goldenhour`, `blood`, `bloodmoon`, `moon`, `clear`, `off`, `stop`. Published servers allow the place creator and user id 572644519.
 
 ## UI
 
 `StarterGui.GameHud` (`HudClient`):
 
-- Top: coins, inventory `count/cap`, level, XP bar, then the conveyor line (`Conveyor sells 1 every Ns`, or `Sold NAME +coins` for 2.5 seconds)
+- Top: coins, inventory `count/cap`, level, XP bar, then the conveyor line (`Conveyor sells 1 every Ns`, or `Sold NAME +coins` for 2.5 seconds), then `Customers today N · coins/min`
 - Catch card: rarity, name, mutation, value, and a fish picture (`FishConfig` image, or a colored ViewportFrame fish if `imageId` is empty)
-- Toast, level-up popup, crit popup, mythic announcement
+- Toast, level-up popup, crit popup, Legendary/Mythic banner, weather banner, welcome-back popup
 - Upgrade shop rows: Faster Cast, Bigger Inventory, Luckier Rod, with next-stat preview and cost
-- Restaurant panel: current tier, next tier, upgrade button, style buttons
+- Restaurant panel (460×470): current tier, sell, conveyor seconds, guests, tip percent, customers today, earnings per minute, next tier with the same guest and tip lines, upgrade button, style buttons
 - Rod panel is created in code: current level and name, the five stats, fish XP toward the next level, the next level's stats and coin cost, and the next evolution preview. The button reads `Level Up` plus the cost, or `MAX` at level 50.
 
-`ClientFX` kinds: `Cast`, `Bite`, `Reel`, `Sell`, `OpenShop`, `Toast`, `LevelUp`, `RodEvolved`, `Crit`, `OpenRodShop`, `PassiveSell`, `CatchFX`.
+`ClientFX` kinds: `Cast`, `Bite`, `Reel`, `Sell`, `OpenShop`, `Toast`, `LevelUp`, `RodEvolved`, `Crit`, `OpenRodShop`, `PassiveSell`, `CatchFX`, `SystemChat`, `RestaurantSale`, `WelcomeBack`, `Weather`, `Lightning`.
 
-Catch bursts scale by rarity (white, green, blue, purple plus a light, gold, rainbow). Mythic flashes the screen and announces the catch to everyone. Legendary and Mythic shake the catcher's camera. Mutations add a second burst.
+Catch bursts scale by rarity (white, green, blue, purple plus a light, gold, rainbow). Legendary and Mythic shake the catcher's camera. Mutations add a second burst.
+
+A Legendary or Mythic catch fires `CatchFX` to every client before the character-stream check, so the banner still shows if the catcher is not loaded. The text is `{DisplayName} caught a {RARITY} {mutation} {fish}!` (for example `nhagh06 caught a MYTHIC Rainbow Dragon Fish!`). The banner stays 5 seconds, gold for Legendary and pink for Mythic. The same line is a system chat message (`TextChannel:DisplaySystemMessage` on the client; the server call is not allowed). A Mythic also plays `Assets.CritCatch`, or `LevelUp` if that sound is missing, through `SoundService:PlayLocalSound` at playback speed 0.7 and volume 1.
 
 `SprintClient` builds `SprintGui`: walk 16, sprint 26 while Left Shift is held (or the touch Sprint button), stamina 100 draining at 22/s and regenerating at 18/s, FOV +10, foot dust.
 
@@ -254,6 +305,8 @@ Still placeholders: Anchovy, Smelt, Shrimp, Tuna, Sea Bream, Scallop, Sea Urchin
 
 `PlayerData` uses DataStore `SushiEmpire_PlayerData_v1`, key `Player_{userId}`. Autosave every 60 seconds, plus save on leave and `BindToClose`. Loads and saves retry 3 times with backoff. A failed load starts from defaults.
 
-Saved fields: `Coins`, `Inventory` (name, rarity, mutation, value), `Upgrades`, `Level`, `XP`, `RestaurantTier`, `Style`, `RodId`, `RodLevel`, `RodXP`, `RodSchema` (2), `RodLevels`.
+Saved fields: `Coins`, `Inventory` (name, rarity, mutation, value), `Upgrades`, `Level`, `XP`, `RestaurantTier`, `Style`, `RodId`, `RodLevel`, `RodXP`, `RodSchema` (2), `RodLevels`, `LastSeen`, `CustomersToday`, `CustomerDay`.
+
+`LastSeen` is the unix time of the last save, unless a Studio `/away` has frozen it. `CustomerDay` is the UTC day-of-year. `CustomersToday` loads only when that day still matches; otherwise it starts at 0. `PendingAway`, `FreezeLastSeen`, and `RestaurantPerMinute` are session-only.
 
 Leaderboards use ordered stores `SushiEmpire_TopCoins_v1` and `SushiEmpire_TopLevel_v1`, refreshed about every 20 seconds, top 8.
