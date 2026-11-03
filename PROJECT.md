@@ -1,6 +1,6 @@
 # Grow a Sushi Empire
 
-Roblox place **Grow a Sushi Empire** (`placeId` 94763502612420). Players fish at a shared Japanese seaside town, stock a personal restaurant on one of six plots, and sell sushi for coins. Progression is level, restaurant tier, rod tier, and three personal upgrades. All purchases are checked on the server. Player progress is saved in DataStores.
+Roblox place **Grow a Sushi Empire** (`placeId` 94763502612420). Players fish at a shared Japanese seaside town, stock a personal restaurant on one of six plots, and sell sushi for coins. Progression is level, restaurant tier, one rod that levels from 1 to 50, and three personal upgrades. All purchases are checked on the server. Player progress is saved in DataStores.
 
 Tune numbers in `ReplicatedStorage.EconomyConfig`. `GameConfig`, `RestaurantTiers`, and `RodConfig` read those values at runtime and overwrite their own starting numbers.
 
@@ -22,11 +22,11 @@ Tune numbers in `ReplicatedStorage.EconomyConfig`. `GameConfig`, `RestaurantTier
 | `ServerStorage.DecorTemplates` | Master copies: `StreetLamp`, `StoneLantern`, `Bench`, `Fence`, `Pine`, `Banner`, `Sakura`, `GableRoof`, `CurvedRoof`. |
 | `StarterGui.GameHud.HudClient` | HUD, shops, catch card, catch effects, conveyor sale line. |
 | `StarterPlayer.StarterPlayerScripts.SprintClient` | Sprint, stamina, dust. |
-| `StarterPlayer.StarterPlayerScripts.FishingRodClient` | Rod hold, cast, bob, and reel. Opens a zone gate once the player's level is high enough. |
+| `StarterPlayer.StarterPlayerScripts.FishingRodClient` | Rod hold, cast, bob, and reel. Shows fishing prompts only while the rod is equipped. Opens a zone gate once the player's level is high enough. |
 | `ReplicatedStorage.GameConfig` | Fish pools, rarity colors, XP, upgrade formulas. |
 | `ReplicatedStorage.EconomyConfig` | Live prices, odds, costs, auto-sell speed. |
 | `ReplicatedStorage.RestaurantTiers` | Five tiers and three cosmetic styles. |
-| `ReplicatedStorage.RodConfig` | Five rods and enchant math. |
+| `ReplicatedStorage.RodConfig` | One rod, levels 1–50, evolution looks, and the coin/XP curves. |
 | `ReplicatedStorage.FishConfig` | Per-fish decal ids. |
 | `ReplicatedStorage.FishingZones` | Four fishing zones: level, fish, rarity odds, XP multiplier. |
 
@@ -102,23 +102,45 @@ Personal upgrades, max level 60, cost `floor(baseCost * 1.35 ^ level)`:
 
 Lucky Bait is 40 coins, lasts 180 seconds, and adds 1 luck. It is not saved.
 
+Rod leveling uses `EconomyConfig.RodProgress`: `baseCost` 40, `growth` 1.3, `maxLevel` 50, `xpBase` 24. The coin cost to leave level L is `floor(40 * 1.3 ^ L)`. Fish XP to the next level is `floor(24 * 1.3 ^ L)`, and 0 at level 50.
+
 ## Fishing rods
 
-`ServerStorage.FishingRodTemplate` is a Tool (`IsFishingRod = true`) with Handle, Tip, and Reel. The shaft is the Handle's local +Y axis. `Grip` is set so that, in the right hand of an R15 avatar playing the hold pose, the tip sits above the head and forward. Each player gets one clone named `FishingRod`. Color, material, and glow follow the equipped rod and its enchant. Fishing requires the tool equipped and a fishing spot within 18 studs.
+`ServerStorage.FishingRodTemplate` is one Tool (`IsFishingRod = true`). The Handle is the short butt. Shaft, Tip, and Reel are welded to it and run along the Handle's local +Y, so the tip is at local y=5.45. `Grip` is a 70.2° tilt on X (`CFrame.Angles(math.rad(70.2), 0, 0)`). On an R15 character, the default tool hold and the Hold animation both put the right hand in front of the body and the tip about 7 studs forward and 1.9 studs above the hand, idle and walking. Each player gets one clone named `FishingRod`.
 
-`ReplicatedStorage.Assets.FishingAnims` holds KeyframeSequences `Hold`, `Cast`, `Bob`, and `Reel` (Action priority). `FishingRodClient` registers each one when `KeyframeSequenceProvider` allows it, loads it with the Animator, and plays it on the owning client so it replicates. If registration is unavailable, the same poses are written onto the arm Motor6Ds, which also replicates. Equip loops Hold. A cast plays Cast, then Bob until the catch resolves, then Reel on a success. During the cast the server puts a Beam from the rod Tip to a red bobber and tweens the bobber out over the water, where it bobs until the catch finishes.
+`ReplicatedStorage.Assets.FishingAnims` holds KeyframeSequences `Hold`, `Cast`, `Bob`, and `Reel` (Action priority). Hold matches that forward grip. Cast pulls the tip up and back, then extends it forward toward the water, then returns to Hold. Bob is a small lift. Reel draws the tip in and returns to Hold. `FishingRodClient` registers each clip when `KeyframeSequenceProvider` allows it and plays it on the owning client. If registration is unavailable, the same poses are written onto the arm Motor6D or AnimationConstraint. Equip loops Hold. Pressing E plays Cast, then Bob. The server then sends Bite and Reel. Reel plays once; the catch result does not start a second reel.
 
-`RodConfig` stats before enchant. Costs come from `EconomyConfig.RodCosts`. The shop only sells the next rod in order.
+A cast requires the rod equipped, a fishing spot within 18 studs, the zone's level, and the cooldown. The server raycasts outward from the spot, skipping the dock, and accepts only terrain water. A beam runs from the rod tip to a red bobber that arcs onto that water, bobs, shows a `!` billboard on the bite, then tweens back to the player. Invisible `Workspace.Baseplate` has `CanQuery` false so those rays reach the water instead of the baseplate top.
 
-| Order | Id | Name | Cost | Cast speed | Luck | Crit | Mutation | Sell bonus |
-|---|---|---|---|---|---|---|---|---|
-| 1 | Bamboo | Bamboo Rod | 0 | 1.00 | 0 | 3% | 0% | 0% |
-| 2 | Fiberglass | Fiberglass Rod | 2,500 | 0.90 | 0.8 | 6% | 1.5% | 5% |
-| 3 | Carbon | Carbon Rod | 20,000 | 0.78 | 1.8 | 10% | 3% | 10% |
-| 4 | Golden | Golden Rod | 160,000 | 0.66 | 3.2 | 14% | 5% | 18% |
-| 5 | MythicKoi | Mythic Koi Rod | 1,200,000 | 0.52 | 5.0 | 20% | 9% | 30% |
+There is one rod, level 1–50. Stats blend linearly with `alpha = (level - 1) / 49`:
 
-Enchant is per rod, max 25. Cost is `base 180 * 2.4 ^ (order - 1)`, then `* 1.35 ^ level`. Gains approach a cap (cast speed down to 35% of the rod's scale reduction, +2.5 luck, +8% crit capped at 45%, +6% mutation, +12% sell). Glow turns on at enchant 10 even if the rod itself does not glow.
+| Stat | Level 1 | Level 50 |
+|---|---|---|
+| Cast speed | 1.00 | 0.52 |
+| Luck | 0 | 5 |
+| Crit | 3% | 20% |
+| Mutation | 0% | 9% |
+| Sell bonus | 0% | 30% |
+
+Every 5 levels the rod evolves. Higher tiers glow; from Coral up they emit particles; Dragon, Celestial, and Mythic Koi also leave a trail.
+
+| Level | Id | Name | Look |
+|---|---|---|---|
+| 1 | Bamboo | Bamboo Rod | Wood, tan |
+| 5 | Wooden | Wooden Rod | Wood, dark brown |
+| 10 | Fiberglass | Fiberglass Rod | SmoothPlastic, blue |
+| 15 | Carbon | Carbon Rod | Metal, near black |
+| 20 | Steel | Steel Rod | Metal, glow |
+| 25 | Coral | Coral Rod | SmoothPlastic, glow, particles |
+| 30 | Golden | Golden Rod | Metal, glow, particles |
+| 35 | Crystal | Crystal Rod | Glass, glow, particles |
+| 40 | Dragon | Dragon Rod | Neon, glow, particles, trail |
+| 45 | Celestial | Celestial Rod | Neon, glow, particles, trail |
+| 50 | MythicKoi | Mythic Koi Rod | Neon, glow, particles, trail |
+
+The Rod Shop spends coins for one level (`BuyRod`). `EnchantRod` calls the same level-up. Catch XP also fills `RodXP` and levels the rod. When the evolution id changes, the server fires `ClientFX` `"RodEvolved"` and a particle burst. The HUD popup reads `Your rod evolved into {name}!`.
+
+Old saves migrate once (`RodSchema` is not 2). Bamboo starts at 1, Fiberglass at 10, Carbon at 15, Golden at 30, MythicKoi at 50, plus `floor(old enchant / 5)`, clamped to 1–50. Then `RodSchema` is 2, `RodId` is the evolution id, and `RodXP` is 0.
 
 A crit (rod crit chance) catches 2 fish, or 3 if a second 35% roll hits, limited by inventory space. The HUD shows `CRITICAL CATCH xN!` and plays `Assets.CritCatch`.
 
@@ -130,7 +152,7 @@ Shared world:
 
 - `Workspace.Plaza` — cobblestone floor (under the terrain), `Fountain`, five market stalls. The old `Path1`–`Path6`, `PierPath`, and `SushiFountain` are gone. Visible roads are `Workspace.Town.Roads`. A downward ray through the plaza center (36 studs around the origin) found no floating parts.
 - `Workspace.Plaza.Fountain` — stone basin 20 studs across and 3 studs tall, bottom flush at y=6, with four seats on the rim. A 10.6-stud center column holds a koi. Glass water, a spray emitter, and four soft `NightLantern` lights.
-- `Workspace.Map.MainPier` and `Workspace.Map.FishingSpots` — pier spots `Pier1`–`Pier6` and plot spots `Plot1Spot`–`Plot6Spot`, each with a `Fish` prompt. All twelve are Village Dock.
+- `Workspace.Map.MainPier` and `Workspace.Map.FishingSpots` — the village dock is `WaterDock` on the pier, from z=626 (sand) to z=668 (about 40 studs over terrain water). All twelve Village Dock spots stand on that end (`Pier1`–`Pier6` at z=650, `Plot1Spot`–`Plot6Spot` at z=658). Each prompt says `Press E to Fish`, key E, no hold, and is clickable for touch. The client turns the prompts on only while the rod is equipped.
 - `Workspace.Map.Interact` — invisible prompt hosts: `BaitShop`, `UpgradeShop`, `RodShop`, `PlazaSell`, standing a few studs in front of the shop doors. `OldFishingSpot` and the old `SellCounter` prompts are disabled
 - `Workspace.Decor` — torii, one sakura model cloned along the town, boats, rocks, and bushes. Road lamps and benches live under `Workspace.Town`
 - `Workspace.Town` — fishing town built on the terrain (surface about y=6). `StreamingEnabled` is on
@@ -164,7 +186,7 @@ Terrain is a flat island, grass inside about 520 studs and sand beach outside th
 |---|---|---|
 | Bait Shop | Buy Bait | Spends 40 coins immediately. No UI. |
 | Upgrade Shop | Upgrades | Opens the upgrade panel. Buys go through `BuyUpgrade`. |
-| Rod Shop | Rods | Opens the rod panel. `BuyRod` and `EnchantRod`. |
+| Rod Shop | Rods | Opens the rod panel. `BuyRod` and `EnchantRod` both buy the next rod level. |
 | Sell Counter | Sell All | Sells the whole inventory, same payout as the plot counter. |
 | Leaderboard | none | SurfaceGuis `CoinsGui` and `LevelGui`. |
 
@@ -187,9 +209,9 @@ Night is the same clock as `DayNight` (before 6.4 or after 17.7). Goro, Botan, a
 - Toast, level-up popup, crit popup, mythic announcement
 - Upgrade shop rows: Faster Cast, Bigger Inventory, Luckier Rod, with next-stat preview and cost
 - Restaurant panel: current tier, next tier, upgrade button, style buttons
-- Rod panel is created in code: stats, enchant, buy next rod
+- Rod panel is created in code: current level and name, the five stats, fish XP toward the next level, the next level's stats and coin cost, and the next evolution preview. The button reads `Level Up` plus the cost, or `MAX` at level 50.
 
-`ClientFX` kinds: `Cast`, `Sell`, `OpenShop`, `Toast`, `LevelUp`, `Crit`, `OpenRodShop`, `PassiveSell`, `CatchFX`.
+`ClientFX` kinds: `Cast`, `Bite`, `Reel`, `Sell`, `OpenShop`, `Toast`, `LevelUp`, `RodEvolved`, `Crit`, `OpenRodShop`, `PassiveSell`, `CatchFX`.
 
 Catch bursts scale by rarity (white, green, blue, purple plus a light, gold, rainbow). Mythic flashes the screen and announces the catch to everyone. Legendary and Mythic shake the catcher's camera. Mutations add a second burst.
 
@@ -219,19 +241,19 @@ Still placeholders: Anchovy, Smelt, Shrimp, Tuna, Sea Bream, Scallop, Sea Urchin
 
 ## Fishing zones
 
-`ReplicatedStorage.FishingZones` picks the fish. Existing pier and plot spots are Village Dock. The other three zones are docks in `Workspace.Map.FishingZones`, with three prompt parts each in `Workspace.Map.FishingSpots`. A sign shows the name and level. A `LockGate` blocks the dock until `FishingRodClient` sees `leaderstats.Level` at or above the requirement. The server still rejects the catch with `{name} unlocks at level {n}.` Catch XP is multiplied by the zone's `XpMultiplier`. Odds are filtered to rarities that zone actually has, then luck nudges the higher ones.
+`ReplicatedStorage.FishingZones` picks the fish. All twenty-one spots live in `Workspace.Map.FishingSpots`. Terrain water starts near radius 628 (and z=628 on the main pier) at y=-1. Each dock starts on the sand just before that line and runs about 40 studs out over the water, with posts down to about y=-7. A sign shows the name and level. A `LockGate` blocks the dock until `FishingRodClient` sees `leaderstats.Level` at or above the requirement. The server still rejects the catch with `{name} unlocks at level {n}.` Catch XP is multiplied by the zone's `XpMultiplier`. Odds are filtered to rarities that zone actually has, then luck nudges the higher ones.
 
 | Zone | Level | XP | Where | Odds | Fish |
 |---|---|---|---|---|---|
-| Village Dock | 1 | 1.0x | Main pier and the six plot docks. Sign on the pier near (10, 6.4, 530). | Common 100% | Anchovy, Sardine, Smelt, Mackerel, Shrimp |
-| Coral Reef | 8 | 1.6x | Shore near (507, 6, 185), pink coral beside a wood dock | Uncommon 68%, Rare 32% | Salmon, Sea Bream, Scallop, Octopus, Yellowtail |
-| Deep Sea Pier | 18 | 2.4x | Shore near (-507, 6, -185), dark metal dock and blue night lights | Uncommon 18%, Rare 42%, Epic 40% | Tuna, Bluefin Tuna, Eel, Sea Urchin, King Crab |
-| Mystic Lagoon | 30 | 3.6x | Shore near (-414, 6, 347), purple stone dock and mist | Legendary 70%, Mythic 30% | Golden Koi, Dragon Fish, Leviathan Tuna, Celestial Koi |
+| Village Dock | 1 | 1.0x | Main pier `WaterDock`, z=626 to z=668. Twelve spots at the end. Sign near (10, 6.4, 530). | Common 100% | Anchovy, Sardine, Smelt, Mackerel, Shrimp |
+| Coral Reef | 8 | 1.6x | Dock along the reef heading, radius about 621–663. Three spots at the end. Pink coral on the rails. | Uncommon 68%, Rare 32% | Salmon, Sea Bream, Scallop, Octopus, Yellowtail |
+| Deep Sea Pier | 18 | 2.4x | Same length on the opposite heading. Dark slate deck and a blue light on the outer post. | Uncommon 18%, Rare 42%, Epic 40% | Tuna, Bluefin Tuna, Eel, Sea Urchin, King Crab |
+| Mystic Lagoon | 30 | 3.6x | Same length toward the lagoon. Pale deck, mist at the end. | Legendary 70%, Mythic 30% | Golden Koi, Dragon Fish, Leviathan Tuna, Celestial Koi |
 
 ## Saving
 
 `PlayerData` uses DataStore `SushiEmpire_PlayerData_v1`, key `Player_{userId}`. Autosave every 60 seconds, plus save on leave and `BindToClose`. Loads and saves retry 3 times with backoff. A failed load starts from defaults.
 
-Saved fields: `Coins`, `Inventory` (name, rarity, mutation, value), `Upgrades`, `Level`, `XP`, `RestaurantTier`, `Style`, `RodId`, `RodLevels`.
+Saved fields: `Coins`, `Inventory` (name, rarity, mutation, value), `Upgrades`, `Level`, `XP`, `RestaurantTier`, `Style`, `RodId`, `RodLevel`, `RodXP`, `RodSchema` (2), `RodLevels`.
 
 Leaderboards use ordered stores `SushiEmpire_TopCoins_v1` and `SushiEmpire_TopLevel_v1`, refreshed about every 20 seconds, top 8.
