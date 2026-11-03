@@ -20,13 +20,15 @@ Tune numbers in `ReplicatedStorage.EconomyConfig`. `GameConfig`, `RestaurantTier
 | `ServerScriptService.MarketIdle` | Sways shop clerks tagged `MarketNPC`, using each part's `Home` CFrame. |
 | `ServerStorage.TownsfolkTemplate` | R15 villager rig cloned by `Townsfolk`. |
 | `ServerStorage.DecorTemplates` | Master copies: `StreetLamp`, `StoneLantern`, `Bench`, `Fence`, `Pine`, `Banner`, `Sakura`, `GableRoof`, `CurvedRoof`. |
-| `StarterGui.GameHud.HudClient` | HUD, shops, catch card, catch effects. |
+| `StarterGui.GameHud.HudClient` | HUD, shops, catch card, catch effects, conveyor sale line. |
 | `StarterPlayer.StarterPlayerScripts.SprintClient` | Sprint, stamina, dust. |
+| `StarterPlayer.StarterPlayerScripts.FishingRodClient` | Rod hold, cast, bob, and reel. Opens a zone gate once the player's level is high enough. |
 | `ReplicatedStorage.GameConfig` | Fish pools, rarity colors, XP, upgrade formulas. |
-| `ReplicatedStorage.EconomyConfig` | Live prices, odds, costs. |
+| `ReplicatedStorage.EconomyConfig` | Live prices, odds, costs, auto-sell speed. |
 | `ReplicatedStorage.RestaurantTiers` | Five tiers and three cosmetic styles. |
 | `ReplicatedStorage.RodConfig` | Five rods and enchant math. |
 | `ReplicatedStorage.FishConfig` | Per-fish decal ids. |
+| `ReplicatedStorage.FishingZones` | Four fishing zones: level, fish, rarity odds, XP multiplier. |
 
 Remotes in `ReplicatedStorage.Remotes`:
 
@@ -61,15 +63,15 @@ Names, sizes, and conveyor counts live on `RestaurantTiers.Tiers`. Costs, requir
 
 | Tier | Name | Level | Coins | Sell | Auto-sell | Conveyors | Model |
 |---|---|---|---|---|---|---|---|
-| 1 | Sushi Stall | 1 | 0 | 1.00x | 14s | 1 | Tier1 |
-| 2 | Sushi Bar | 8 | 5,000 | 1.35x | 10s | 2 | Tier2 |
-| 3 | Conveyor Restaurant | 16 | 50,000 | 1.80x | 7s | 3 | Tier3 |
-| 4 | Omakase Lounge | 28 | 400,000 | 2.40x | 5s | 3 | Tier4 |
-| 5 | Sushi Empire Tower | 40 | 3,000,000 | 3.20x | 3.2s | 4 | Tier5 |
+| 1 | Sushi Stall | 1 | 0 | 1.00x | 22s | 1 | Tier1 |
+| 2 | Sushi Bar | 8 | 5,000 | 1.35x | 16s | 2 | Tier2 |
+| 3 | Conveyor Restaurant | 16 | 50,000 | 1.80x | 11s | 3 | Tier3 |
+| 4 | Omakase Lounge | 28 | 400,000 | 2.40x | 8s | 3 | Tier4 |
+| 5 | Sushi Empire Tower | 40 | 3,000,000 | 3.20x | 5s | 4 | Tier5 |
 
 The Restaurant button calls `UpgradeRestaurant`. The server checks level and coins, charges the player, clears plates, and respawns the model. Styles are cosmetic: Traditional (level 1), Modern (8), Neon (18). `SetStyle` checks the level, saves `Style`, and recolors the current model.
 
-Auto-sell runs in `FishingServer`. Every `passiveInterval` it removes the oldest inventory fish and one plate, pays `fish value * tier sell * (1 + rod sell bonus)`, and grants sell XP.
+Auto-sell runs in `FishingServer`. `EconomyConfig.AutoSell` sets `fishPerTick` to 1 and `autoSellInterval` to 22, 16, 11, 8, 5 seconds, the same numbers copied onto `Restaurant.passiveInterval`. That is about 55% slower than the old 14 / 10 / 7 / 5 / 3.2 drain. Each tick removes that many oldest inventory fish and one plate each, pays `fish value * tier sell * (1 + rod sell bonus)`, and grants sell XP. Plates take 1.8 seconds between conveyor waypoints. The HUD line under the XP bar reads `Conveyor sells 1 every Ns`, and for 2.5 seconds after a sale it reads `Sold NAME +coins`.
 
 ## Economy config
 
@@ -79,7 +81,7 @@ Fish sell values (about 40% of the original list in `GameConfig.FishByRarity`; `
 
 | Rarity | Fish (value) |
 |---|---|
-| Common | Sardine 3, Mackerel 4, Anchovy 3, Smelt 4 |
+| Common | Sardine 3, Mackerel 4, Anchovy 3, Smelt 4, Shrimp 3 |
 | Uncommon | Salmon 9, Tuna 10, Yellowtail 10, Sea Bream 8 |
 | Rare | Eel 22, Octopus 20, Scallop 19, Sea Urchin 24 |
 | Epic | Bluefin Tuna 56, King Crab 52, Giant Prawn 48 |
@@ -102,7 +104,9 @@ Lucky Bait is 40 coins, lasts 180 seconds, and adds 1 luck. It is not saved.
 
 ## Fishing rods
 
-`ServerStorage.FishingRodTemplate` is a Tool (`IsFishingRod = true`) with Handle, Tip, and Reel. Each player gets one clone named `FishingRod`. Color, material, and glow follow the equipped rod and its enchant. Fishing requires the tool equipped and a fishing spot within 18 studs.
+`ServerStorage.FishingRodTemplate` is a Tool (`IsFishingRod = true`) with Handle, Tip, and Reel. The shaft is the Handle's local +Y axis. `Grip` is set so that, in the right hand of an R15 avatar playing the hold pose, the tip sits above the head and forward. Each player gets one clone named `FishingRod`. Color, material, and glow follow the equipped rod and its enchant. Fishing requires the tool equipped and a fishing spot within 18 studs.
+
+`ReplicatedStorage.Assets.FishingAnims` holds KeyframeSequences `Hold`, `Cast`, `Bob`, and `Reel` (Action priority). `FishingRodClient` registers each one when `KeyframeSequenceProvider` allows it, loads it with the Animator, and plays it on the owning client so it replicates. If registration is unavailable, the same poses are written onto the arm Motor6Ds, which also replicates. Equip loops Hold. A cast plays Cast, then Bob until the catch resolves, then Reel on a success. During the cast the server puts a Beam from the rod Tip to a red bobber and tweens the bobber out over the water, where it bobs until the catch finishes.
 
 `RodConfig` stats before enchant. Costs come from `EconomyConfig.RodCosts`. The shop only sells the next rod in order.
 
@@ -124,8 +128,9 @@ Cast time and cooldown also scale with Faster Cast and the rod's cast speed. Flo
 
 Shared world:
 
-- `Workspace.Plaza` — cobblestone floor (under the terrain), sushi fountain, five market stalls. The old `Path1`–`Path6` and `PierPath` are gone. Visible roads are `Workspace.Town.Roads`
-- `Workspace.Map.MainPier` and `Workspace.Map.FishingSpots` — pier spots `Pier1`–`Pier6` and plot spots `Plot1Spot`–`Plot6Spot`, each with a `Fish` prompt
+- `Workspace.Plaza` — cobblestone floor (under the terrain), `Fountain`, five market stalls. The old `Path1`–`Path6`, `PierPath`, and `SushiFountain` are gone. Visible roads are `Workspace.Town.Roads`. A downward ray through the plaza center (36 studs around the origin) found no floating parts.
+- `Workspace.Plaza.Fountain` — stone basin 20 studs across and 3 studs tall, bottom flush at y=6, with four seats on the rim. A 10.6-stud center column holds a koi. Glass water, a spray emitter, and four soft `NightLantern` lights.
+- `Workspace.Map.MainPier` and `Workspace.Map.FishingSpots` — pier spots `Pier1`–`Pier6` and plot spots `Plot1Spot`–`Plot6Spot`, each with a `Fish` prompt. All twelve are Village Dock.
 - `Workspace.Map.Interact` — invisible prompt hosts: `BaitShop`, `UpgradeShop`, `RodShop`, `PlazaSell`, standing a few studs in front of the shop doors. `OldFishingSpot` and the old `SellCounter` prompts are disabled
 - `Workspace.Decor` — torii, one sakura model cloned along the town, boats, rocks, and bushes. Road lamps and benches live under `Workspace.Town`
 - `Workspace.Town` — fishing town built on the terrain (surface about y=6). `StreamingEnabled` is on
@@ -163,7 +168,7 @@ Terrain is a flat island, grass inside about 520 studs and sand beach outside th
 | Sell Counter | Sell All | Sells the whole inventory, same payout as the plot counter. |
 | Leaderboard | none | SurfaceGuis `CoinsGui` and `LevelGui`. |
 
-Two-part roofs are rebuilt from those templates. `GableRoof` is the wedge peak on the houses, tea house, ramen shop, and shrine: the halves meet at a ridge and slope out to the eaves, with about 1.5 studs of overhang. `CurvedRoof` is the shallow slate roof on the five stalls and every restaurant tier, with the same peak plus a short upturned eave. Flat single-part roofs (Kenji, Yuki, Mio, Jun) keep their slab, and the ridge cap sits on that slab. The five stalls sit in the gaps around the ring, facing the plaza, with the floor bottom at y=6. Each has a blocky `Clerk` tagged `MarketNPC` (Head, Torso, arms, legs). `Home` CFrames match those grounded parts, so `MarketIdle` sways the arms and head in place instead of pulling them back through the floor. `Workspace.Map.Interact.GeneratedChef` is a mesh prop and is not tagged, so it does not animate.
+Two-part roofs are rebuilt from those templates. `GableRoof` is the wedge peak on the houses, tea house, ramen shop, and shrine: the halves meet at a ridge and slope out to the eaves, with about 1.5 studs of overhang. `CurvedRoof` is the shallow slate roof on the five stalls and every restaurant tier, with the same peak plus a short upturned eave. Flat single-part roofs (Kenji, Yuki, Mio, Jun) keep their slab, and the ridge cap sits on that slab. Every ridge, including the five restaurant templates, is level (world up) and its long axis follows the roof's ridge. A ray on each slope confirms the high side is the ridge. None needed to be flipped. The five stalls sit in the gaps around the ring, facing the plaza, with the floor bottom at y=6. Each has a blocky `Clerk` tagged `MarketNPC` (Head, Torso, arms, legs). `Home` CFrames match those grounded parts, so `MarketIdle` sways the arms and head in place instead of pulling them back through the floor. `Workspace.Map.Interact.GeneratedChef` is a mesh prop and is not tagged, so it does not animate.
 
 `DayNight` runs a 600-second full day from clock 16.2. Night is before 6.4 or after 17.7, and that is when `NightLantern` parts turn Neon and their lights switch on. Dusk (16:00–18:36 and 5:24–7:18) keeps a warm tint. Day is clear: atmosphere density 0.08, haze 0.1, fog end 9000, so the whole island reads from above. Dusk is density 0.14 and haze 0.28. Night is density 0.16 and haze 0.22, not the old heavy fog.
 
@@ -177,7 +182,7 @@ Night is the same clock as `DayNight` (before 6.4 or after 17.7). Goro, Botan, a
 
 `StarterGui.GameHud` (`HudClient`):
 
-- Top: coins, inventory `count/cap`, level, XP bar
+- Top: coins, inventory `count/cap`, level, XP bar, then the conveyor line (`Conveyor sells 1 every Ns`, or `Sold NAME +coins` for 2.5 seconds)
 - Catch card: rarity, name, mutation, value, and a fish picture (`FishConfig` image, or a colored ViewportFrame fish if `imageId` is empty)
 - Toast, level-up popup, crit popup, mythic announcement
 - Upgrade shop rows: Faster Cast, Bigger Inventory, Luckier Rod, with next-stat preview and cost
@@ -210,7 +215,18 @@ Sounds in `ReplicatedStorage.Assets`: `CoinCollect`, `WaterSplash`, `LevelUp`, `
 | Golden Koi | `rbxassetid://121824233452904` |
 | Dragon Fish | `rbxassetid://86456472670126` |
 
-Still placeholders: Anchovy, Smelt, Tuna, Sea Bream, Scallop, Sea Urchin, Leviathan Tuna, Celestial Koi.
+Still placeholders: Anchovy, Smelt, Shrimp, Tuna, Sea Bream, Scallop, Sea Urchin, Leviathan Tuna, Celestial Koi.
+
+## Fishing zones
+
+`ReplicatedStorage.FishingZones` picks the fish. Existing pier and plot spots are Village Dock. The other three zones are docks in `Workspace.Map.FishingZones`, with three prompt parts each in `Workspace.Map.FishingSpots`. A sign shows the name and level. A `LockGate` blocks the dock until `FishingRodClient` sees `leaderstats.Level` at or above the requirement. The server still rejects the catch with `{name} unlocks at level {n}.` Catch XP is multiplied by the zone's `XpMultiplier`. Odds are filtered to rarities that zone actually has, then luck nudges the higher ones.
+
+| Zone | Level | XP | Where | Odds | Fish |
+|---|---|---|---|---|---|
+| Village Dock | 1 | 1.0x | Main pier and the six plot docks. Sign on the pier near (10, 6.4, 530). | Common 100% | Anchovy, Sardine, Smelt, Mackerel, Shrimp |
+| Coral Reef | 8 | 1.6x | Shore near (507, 6, 185), pink coral beside a wood dock | Uncommon 68%, Rare 32% | Salmon, Sea Bream, Scallop, Octopus, Yellowtail |
+| Deep Sea Pier | 18 | 2.4x | Shore near (-507, 6, -185), dark metal dock and blue night lights | Uncommon 18%, Rare 42%, Epic 40% | Tuna, Bluefin Tuna, Eel, Sea Urchin, King Crab |
+| Mystic Lagoon | 30 | 3.6x | Shore near (-414, 6, 347), purple stone dock and mist | Legendary 70%, Mythic 30% | Golden Koi, Dragon Fish, Leviathan Tuna, Celestial Koi |
 
 ## Saving
 
